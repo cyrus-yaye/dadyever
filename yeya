@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>清朝人口互动图表 · 内置小游戏</title>
+<style>
+:root{--c1:#667eea;--c2:#764ba2;--c3:#f093fb;--c4:#f5576c;}
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;}
+body{background:linear-gradient(135deg,var(--c1),var(--c2));color:#fff;padding:20px;}
+a{text-decoration:none;}
+.container{max-width:900px;margin:auto;background:rgba(255,255,255,.95);border-radius:20px;padding:30px;color:#333;box-shadow:0 10px 40px rgba(0,0,0,.2);}
+h1{text-align:center;margin-bottom:10px;font-size:26px;}
+.sub{text-align:center;margin-bottom:25px;font-size:14px;color:#666;}
+.controls{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-bottom:25px;}
+.controls select,.controls button{padding:8px 14px;border:2px solid #ddd;border-radius:8px;background:#fff;transition:.3s;}
+.controls button{border:none;background:var(--c1);color:#fff;cursor:pointer;}
+.controls button:hover{background:var(--c2);}
+.chart{position:relative;height:350px;width:100%;overflow:hidden;}
+.bar{position:absolute;bottom:0;background:linear-gradient(to top,var(--c1),var(--c2));border-radius:5px 5px 0 0;cursor:pointer;transition:.3s;}
+.bar:hover{transform:scaleY(1.05);}
+.bar-label{position:absolute;bottom:-22px;left:50%;transform:translateX(-50%);font-size:12px;color:#555;}
+.bar-value{position:absolute;top:-24px;left:50%;transform:translateX(-50%);font-size:11px;background:rgba(255,255,255,.9);padding:2px 6px;border-radius:4px;font-weight:700;}
+/* ---- 游戏区域 ---- */
+#gameBox{margin-top:35px;border-top:1px dashed #ccc;padding-top:25px;text-align:center;}
+#gameBoard{position:relative;width:90%;max-width:420px;height:340px;margin:15px auto;background:rgba(255,255,255,.08);border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.25);}
+.paddle{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:100px;height:12px;background:#fff;border-radius:6px;}
+.ball{position:absolute;width:12px;height:12px;background:var(--c3);border-radius:50%;}
+.brick{position:absolute;border-radius:4px;text-align:center;line-height:24px;font-size:11px;font-weight:700;color:#fff;}
+#gameInfo{margin-bottom:10px;font-size:14px;}
+#again{display:none;margin:10px auto;padding:8px 18px;border:none;border-radius:20px;background:var(--c4);color:#fff;font-weight:700;cursor:pointer;}
+@media(max-width:600px){h1{font-size:22px;}.controls{flex-direction:column;align-items:center;}}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>清朝人口統計互動圖表</h1>
+  <p class="sub">篩選 / 切換圖表 → 直觀看人口變化；底部小遊戲用「彈珠」擊敗各關「人口怪」</p>
+
+  <div class="controls">
+    <select id="timeRange"><option value="all">全部時期</option><option value="early">順治-康熙</option><option value="mid">雍正-乾隆</option><option value="late">嘉慶-宣統</option></select>
+    <select id="chartType"><option value="pop">人口數</option><option value="gr">增長率</option></select>
+    <select id="plotType"><option value="bar">柱狀圖</option><option value="line">折線圖</option><option value="pie">餅圖</option></select>
+    <button onclick="renderChart()">更新圖表</button>
+  </div>
+
+  <div class="chart" id="chart"></div>
+
+  <!-- 内置游戏 -->
+  <div id="gameBox">
+    <div id="gameInfo">關卡 <span id="lev">1</span>  |  得分 <span id="sc">0</span></div>
+    <div id="gameBoard">
+      <div class="paddle" id="pad"></div>
+      <div class="ball" id="ball"></div>
+    </div>
+    <button id="again" onclick="resetGame()">再玩一次</button>
+  </div>
+</div>
+
+<script>
+/* -------- 数据 -------- */
+const data=[
+{year:"順治十八年\n1661",pop:1920,gr:0,info:"明末戰亂後低谷"},
+{year:"康熙五十年\n1711",pop:2462,gr:28.2,info:"三藩後恢復"},
+{year:"雍正十二年\n1734",pop:2736,gr:11.1,info:"攤丁入畝"},
+{year:"乾隆六年\n1741",pop:14341,gr:424,info:"改統全口"},
+{year:"乾隆二十九年\n1764",pop:20559,gr:43.4,info:"高速增長"},
+{year:"乾隆六十年\n1795",pop:29697,gr:44.4,info:"乾嘉頂峰"},
+{year:"嘉慶二十四年\n1819",pop:30126,gr:1.4,info:"白蓮教後"},
+{year:"道光二十九年\n1850",pop:41299,gr:37.1,info:"官方峰值"},
+{year:"光緒元年\n1875",pop:32266,gr:-21.9,info:"太平天國跌"},
+{year:"宣統三年\n1911",pop:34000,gr:5.4,info:"清末回升"}
+];
+/* -------- 图表逻辑 -------- */
+function f(){
+const t=document.getElementById('timeRange').value;
+let d=[...data];
+if(t==='early') d=d.slice(0,3); else if(t==='mid') d=d.slice(2,6); else if(t==='late') d=d.slice(6);
+return d;
+}
+function renderChart(){
+const d=f(), isGr=document.getElementById('chartType').value==='gr', plot=document.getElementById('plotType').value;
+const max=Math.max(...d.map(x=>isGr?x.gr:x.pop));
+const box=document.getElementById('chart'); box.innerHTML='';
+if(plot==='bar'){
+const bw=Math.max(50,(box.clientWidth-100)/d.length);
+d.forEach((o,i)=>{
+const h=(isGr?o.gr:o.pop)/max*300;
+const b=document.createElement('div'); b.className='bar';
+b.style.left=`${50+i*(bw+8)}px`; b.style.width=`${bw}px`; b.style.height=`${h}px`;
+const l=document.createElement('div'); l.className='bar-label'; l.textContent=o.year.split('\n')[0];
+const v=document.createElement('div'); v.className='bar-value'; v.textContent=isGr?`${o.gr}%`:`${(o.pop/100).toFixed(0)}萬`;
+b.appendChild(l); b.appendChild(v); b.onclick=()=>alert(`${o.year.replace('\n','')}  ${isGr?'增長率':'人口'}: ${(isGr?o.gr:o.pop).toLocaleString()}${isGr?'%':''}\n${o.info}`); box.appendChild(b);
+});
+}
+if(plot==='line'){
+const s=document.createElementNS('http://www.w3.org/2000/svg','svg'); s.setAttribute('width','100%'); s.setAttribute('height','350');
+const dx=box.clientWidth/d.length, pts=d.map((o,i)=>`${i*dx+30},${300-(isGr?o.gr:o.pop)/max*280}`).join(' ');
+const path=document.createElementNS('http://www.w3.org/2000/svg','path'); path.setAttribute('d',`M${pts}`); path.setAttribute('stroke','url(#g1)'); path.setAttribute('stroke-width','4'); path.setAttribute('fill','none');
+const defs=document.createElementNS('http://www.w3.org/2000/svg','defs'), grad=document.createElementNS('http://www.w3.org/2000/svg','linearGradient'); grad.id='g1'; ['#667eea','#764ba2'].forEach((c,i)=>{const st=document.createElementNS('http://www.w3.org/2000/svg','stop'); st.setAttribute('offset',i); st.setAttribute('stop-color',c); grad.appendChild(st);}); defs.appendChild(grad); s.appendChild(defs); s.appendChild(path); box.appendChild(s);
+}
+if(plot==='pie'){
+const total=d.reduce((a,x)=>a+(isGr?x.gr:x.pop),0); let ang=0;
+const s=document.createElementNS('http://www.w3.org/2000/svg','svg'); s.setAttribute('width','100%'); s.setAttribute('height','350');
+const r=110, cx=box.clientWidth/2, cy=175;
+d.forEach((o,i)=>{
+const per=(isGr?o.gr:o.pop)/total, a=per*360, rad=(ang+a/2)*Math.PI/180;
+const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+const x1=cx+r*Math.cos(ang*Math.PI/180), y1=cy+r*Math.sin(ang*Math.PI/180);
+const x2=cx+r*Math.cos((ang+a)*Math.PI/180), y2=cy+r*Math.sin((ang+a)*Math.PI/180);
+const f=a>180?1:0; path.setAttribute('d',`M${cx},${cy}L${x1},${y1}A${r},${r} 0 ${f},1 ${x2},${y2}Z`); path.setAttribute('fill',['#667eea','#764ba2','#f093fb','#f5576c','#4facfe','#00f2fe','#43e97b','#38f9d7','#ffecd2','#fcb69f'][i%10]); path.style.cursor='pointer'; path.onclick=()=>alert(`${o.year.replace('\n','')}  ${isGr?'增長率':'人口'}: ${(isGr?o.gr:o.pop).toLocaleString()}${isGr?'%':''}`); s.appendChild(path);
+const tx=cx+140*Math.cos(rad), ty=cy+140*Math.sin(rad);
+const txt=document.createElementNS('http://www.w3.org/2000/svg','text'); txt.setAttribute('x',tx); txt.setAttribute('y',ty); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size','12'); txt.textContent=o.year.split('\n')[0]; s.appendChild(txt); ang+=a;
+}); box.appendChild(s);
+}
+}
+/* -------- 内置游戏 -------- */
+const lv=data; let level=0, score=0, brickCount=0;
+const board=document.getElementById('gameBoard'), pad=document.getElementById('pad'), ball=document.getElementById('ball');
+let px=(board.offsetWidth-100)/2, py=board.offsetHeight-20, bx=board.offsetWidth/2, by=py-20, dx=4, dy=-4;
+const levTxt=document.getElementById('lev'), scTxt=document.getElementById('sc'), again=document.getElementById('again');
+function initBricks(){
+board.querySelectorAll('.brick').forEach(b=>b.remove()); bricks=[]; brickCount=0;
+const rows=Math.min(4,Math.ceil(lv[level].pop/3000)), cols=6, w=54, h=22, gap=5;
+const left=(board.offsetWidth-(cols*(w+gap)-gap))/2;
+for(let r=0;r<rows;r++){
+for(let c=0;c<cols;c++){
+const b=document.createElement('div'); b.className='brick'; b.style.width=w+'px'; b.style.height=h+'px';
+b.style.left=left+c*(w+gap)+'px'; b.style.top=60+r*(h+gap)+'px'; b.style.background=lv[level].color;
+b.dataset.pop=Math.round(lv[level].pop/(rows*cols));
+b.textContent=b.dataset.pop; board.appendChild(b); bricks.push(b); brickCount++;
+}
+}
+levTxt.textContent=level+1;
+}
+let bricks=[];
+function drawGame(){ pad.style.left=px+'px'; ball.style.left=bx+'px'; ball.style.top=by+'px'; }
+function updateGame(){
+bx+=dx; by+=dy;
+if(bx<=0||bx>=board.offsetWidth-12) dx=-dx;
+if(by<=0) dy=-dy;
+if(by>=py-12&&by<=py+12&&bx>=px-12&&bx<=px+100) dy=-dy;
+let hit=false;
+bricks.forEach(b=>{
+if(b&&b.style.visibility!=='hidden'){
+const r=b.getBoundingClientRect(), B=board.getBoundingClientRect();
+if(by+12>=r.top-B.top&&by<=r.bottom-B.top&&bx+12>=r.left-B.left&&bx<=r.right-B.left){
+dy=-dy; score+=Math.round(b.dataset.pop/10); scTxt.textContent=score;
+b.style.visibility='hidden'; brickCount--; hit=true;
+}
+}
+});
+if(brickCount===0){level++; if(level>=lv.length){winGame();return;} resetGame();}
+if(by>board.offsetHeight){gameOverGame();return;}
+drawGame(); requestAnimationFrame(updateGame);
+}
+function resetGame(){
+level=0; score=0; again.style.display='none'; bx=board.offsetWidth/2; by=py-20; dx=4; dy=-4; scTxt.textContent=0; initBricks(); updateGame();
+}
+function gameOverGame(){again.style.display='inline-block';}
+function winGame(){again.style.display='inline-block';}
+document.addEventListener('mousemove',e=>{
+const rect=board.getBoundingClientRect(); px=e.clientX-rect.left-50; if(px<0) px=0; if(px>board.offsetWidth-100) px=board.offsetWidth-100; drawGame();
+});
+/* 首次启动 */
+initBricks(); drawGame(); updateGame();
+</script>
+</body>
+</html>
